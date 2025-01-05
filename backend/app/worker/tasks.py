@@ -10,3 +10,14 @@ def index_conversation(conversation_id: int):
     print(f"Indexing conversation {conversation_id}")
     # TODO: Add vector database indexing logic
     return True
+
+
+@celery_app.task(name="app.worker.tasks.delete_conversation_index")
+def delete_conversation_index(conversation_id: int):
+    """
+    Delete a conversation from the vector database.
+    For now, this is just a placeholder that logs the conversation ID.
+    """
+    print(f"Deleting conversation {conversation_id} from vector index")
+    # TODO: Add vector database deletion logic
+    return True

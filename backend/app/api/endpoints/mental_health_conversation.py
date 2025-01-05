@@ -9,7 +9,7 @@ from app.schemas.mental_health_conversation import (
     MentalHealthConversation,
     MentalHealthConversationCreate,
 )
-from app.worker.tasks import index_conversation
+from app.worker.tasks import delete_conversation_index, index_conversation
 
 router = APIRouter()
 
@@ -58,6 +58,10 @@ def update_conversation(
     )
     if db_conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Re-index the updated conversation
+    index_conversation.delay(conversation_id)
+
     return db_conversation
 
 
@@ -68,4 +72,8 @@ def delete_conversation(conversation_id: int, db: Session = Depends(get_db)):
     )
     if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Delete from vector index
+    delete_conversation_index.delay(conversation_id)
+
     return {"ok": True}
