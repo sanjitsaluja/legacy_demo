@@ -1,23 +1,72 @@
+import asyncio
+
+from celery.utils.log import get_task_logger
+
+from app.client.api_client import APIClient
+from app.db.milvus_client import milvus_client
+from app.utils.embeddings import get_combined_embedding
 from app.worker.celery_app import celery_app
+
+logger = get_task_logger(__name__)
 
 
 @celery_app.task(name="app.worker.tasks.index_conversation")
 def index_conversation(conversation_id: int):
-    """
-    Index a conversation in the vector database.
-    For now, this is just a placeholder that logs the conversation ID.
-    """
-    print(f"Indexing conversation {conversation_id}")
-    # TODO: Add vector database indexing logic
-    return True
+    """Index a conversation in the vector database."""
+    logger.info(f"Indexing conversation {conversation_id}")
+
+    async def _index():
+        async with APIClient() as client:
+            try:
+                # Get conversation from API
+                conversation = await client.get_conversation(conversation_id)
+                if not conversation:
+                    logger.error(f"Conversation {conversation_id} not found")
+                    return False
+
+                # Generate embedding for the conversation
+                embedding = get_combined_embedding(
+                    question=conversation.question, answer=conversation.answer
+                )
+
+                # Prepare data for Milvus
+                data = [
+                    {
+                        "id": conversation_id,
+                        "question": conversation.question,
+                        "answer": conversation.answer,
+                        "embedding": embedding,
+                    }
+                ]
+
+                # Insert into Milvus
+                result = milvus_client.insert(
+                    collection_name="mental_health_conversations", data=data
+                )
+
+                logger.info(f"Indexed conversation {conversation_id} in Milvus")
+                return True
+
+            except Exception as e:
+                logger.error(f"Error indexing conversation {conversation_id}: {e}")
+                return False
+
+    return asyncio.run(_index())
 
 
 @celery_app.task(name="app.worker.tasks.delete_conversation_index")
 def delete_conversation_index(conversation_id: int):
-    """
-    Delete a conversation from the vector database.
-    For now, this is just a placeholder that logs the conversation ID.
-    """
-    print(f"Deleting conversation {conversation_id} from vector index")
-    # TODO: Add vector database deletion logic
-    return True
+    """Delete a conversation from the vector database."""
+    logger.info(f"Deleting conversation {conversation_id} from vector index")
+
+    try:
+        # Delete from Milvus
+        result = milvus_client.delete(
+            collection_name="mental_health_conversations", pks=[conversation_id]
+        )
+        logger.info(f"Deleted conversation {conversation_id} from Milvus")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error deleting conversation {conversation_id}: {e}")
+        return False

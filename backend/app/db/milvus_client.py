@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
+from pymilvus import DataType, MilvusClient
 
 # Load environment variables
 load_dotenv(".env.local")
@@ -15,9 +15,7 @@ COLLECTION_NAME = "mental_health_conversations"
 EMBEDDING_DIM = 1536  # OpenAI ada-002 dimension
 
 # Initialize Milvus client
-milvus_client = MilvusClient(
-    uri=os.getenv("MILVUS_URI", str(ROOT_DIR / "data/milvus.db"))
-)
+milvus_client = MilvusClient(uri=os.getenv("MILVUS_URI"))
 
 
 def init_milvus():
@@ -25,31 +23,52 @@ def init_milvus():
     if not milvus_client.has_collection(COLLECTION_NAME):
         print(f"Creating collection {COLLECTION_NAME}...")
 
-        # Define fields for the collection
-        fields = [
-            {
-                "name": "id",
-                "dtype": DataType.INT64,
-                "is_primary": True,
-                "auto_id": False,
-            },
-            {"name": "question", "dtype": DataType.VARCHAR, "max_length": 65535},
-            {"name": "answer", "dtype": DataType.VARCHAR, "max_length": 65535},
-            {"name": "embedding", "dtype": DataType.FLOAT_VECTOR, "dim": EMBEDDING_DIM},
-        ]
+        # Create schema
+        schema = milvus_client.create_schema(
+            auto_id=False,
+            enable_dynamic_field=True,
+        )
 
-        # Create collection
-        milvus_client.create_collection(collection_name=COLLECTION_NAME, fields=fields)
-
-        # Create index
-        milvus_client.create_index(
-            collection_name=COLLECTION_NAME,
+        # Add fields to schema
+        schema.add_field(
+            field_name="id",
+            datatype=DataType.INT64,
+            is_primary=True,
+            description="conversation id",
+        )
+        schema.add_field(
+            field_name="question",
+            datatype=DataType.VARCHAR,
+            max_length=65535,
+            description="conversation question",
+        )
+        schema.add_field(
+            field_name="answer",
+            datatype=DataType.VARCHAR,
+            max_length=65535,
+            description="conversation answer",
+        )
+        schema.add_field(
             field_name="embedding",
-            index_params={
-                "metric_type": "COSINE",
-                "index_type": "IVF_FLAT",
-                "params": {"nlist": 1024},
-            },
+            datatype=DataType.FLOAT_VECTOR,
+            dim=EMBEDDING_DIM,
+            description="combined question-answer embedding",
+        )
+
+        # Prepare index parameters
+        index_params = milvus_client.prepare_index_params()
+        index_params.add_index(
+            field_name="embedding",
+            index_type="IVF_FLAT",
+            metric_type="COSINE",
+            params={"nlist": 1024},
+        )
+
+        # Create collection with schema and index
+        milvus_client.create_collection(
+            collection_name=COLLECTION_NAME,
+            schema=schema,
+            index_params=index_params,
         )
 
         print(f"Created collection and index for {COLLECTION_NAME}")

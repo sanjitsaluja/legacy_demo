@@ -16,3 +16,13 @@ celery_app = Celery(
 
 # Optional configurations
 celery_app.conf.task_routes = {"app.worker.tasks.*": {"queue": "main-queue"}}
+
+# Configure logging
+celery_app.conf.update(
+    task_track_started=True,
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    worker_redirect_stdouts=False,  # Don't redirect stdout/stderr
+    worker_log_color=True,  # Enable colored logging
+)
