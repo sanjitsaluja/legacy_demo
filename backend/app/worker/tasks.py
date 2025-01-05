@@ -10,26 +10,27 @@ from app.worker.celery_app import celery_app
 logger = get_task_logger(__name__)
 
 
-@celery_app.task(name="app.worker.tasks.index_conversation")
-def index_conversation(conversation_id: int):
+@celery_app.task(name="app.worker.tasks.index_conversation", bind=True)
+def index_conversation(self, conversation_id: int):
     """Index a conversation in the vector database."""
-    logger.info(f"Indexing conversation {conversation_id}")
+    logger.info(f"Task ID: {self.request.id}")
+    logger.info(f"Starting to index conversation {conversation_id}")
 
     async def _index():
         async with APIClient() as client:
             try:
-                # Get conversation from API
+                logger.info("Attempting to get conversation from API")
                 conversation = await client.get_conversation(conversation_id)
                 if not conversation:
                     logger.error(f"Conversation {conversation_id} not found")
                     return False
 
-                # Generate embedding for the conversation
+                logger.info("Generating embedding")
                 embedding = get_combined_embedding(
                     question=conversation.question, answer=conversation.answer
                 )
 
-                # Prepare data for Milvus
+                logger.info("Preparing data for Milvus")
                 data = [
                     {
                         "id": conversation_id,
@@ -39,19 +40,23 @@ def index_conversation(conversation_id: int):
                     }
                 ]
 
-                # Insert into Milvus
+                logger.info("Attempting to insert into Milvus")
                 result = milvus_client.insert(
                     collection_name="mental_health_conversations", data=data
                 )
+                logger.info(f"Milvus insert result: {result}")
 
-                logger.info(f"Indexed conversation {conversation_id} in Milvus")
                 return True
 
             except Exception as e:
-                logger.error(f"Error indexing conversation {conversation_id}: {e}")
+                logger.exception(f"Error indexing conversation {conversation_id}")
                 return False
 
-    return asyncio.run(_index())
+    try:
+        return asyncio.run(_index())
+    except Exception as e:
+        logger.exception("Error in task execution")
+        return False
 
 
 @celery_app.task(name="app.worker.tasks.delete_conversation_index")

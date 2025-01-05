@@ -23,7 +23,7 @@ def create_conversation(
         db=db, conversation=conversation
     )
 
-    # Enqueue the indexing task
+    # Enqueue the indexing task and get the task result
     index_conversation.delay(db_conversation.id)
 
     return db_conversation
