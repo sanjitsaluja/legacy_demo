@@ -69,3 +69,11 @@ class APIClient:
         response = await self.client.delete(f"/api/v1/conversations/{conversation_id}")
         response.raise_for_status()
         return response.json()["ok"]
+
+    async def generate_conversation_response(self, question: str) -> str:
+        """Generate a response for a given question using RAG."""
+        response = await self.client.post(
+            "/api/v1/conversations/generate", json={"question": question}
+        )
+        response.raise_for_status()
+        return response.json()["answer"]

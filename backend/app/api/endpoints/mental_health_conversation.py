@@ -6,12 +6,18 @@ from sqlalchemy.orm import Session
 from app.crud import mental_health_conversation
 from app.db.database import get_db
 from app.schemas.mental_health_conversation import (
+    ConversationGenerateRequest,
+    ConversationGenerateResponse,
     MentalHealthConversation,
     MentalHealthConversationCreate,
 )
+from app.services.conversation_generation import ConversationRAGGenerationService
 from app.worker.tasks import delete_conversation_index, index_conversation
 
 router = APIRouter()
+
+# Initialize the RAG service
+rag_service = ConversationRAGGenerationService()
 
 
 @router.post("/conversations/", response_model=MentalHealthConversation)
@@ -77,3 +83,15 @@ def delete_conversation(conversation_id: int, db: Session = Depends(get_db)):
     delete_conversation_index.delay(conversation_id)
 
     return {"ok": True}
+
+
+@router.post("/conversations/generate", response_model=ConversationGenerateResponse)
+async def generate_conversation_response(
+    request: ConversationGenerateRequest,
+):
+    """Generate a response for a given question using RAG."""
+    try:
+        response = rag_service.generate_response(request.question)
+        return ConversationGenerateResponse(answer=response)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

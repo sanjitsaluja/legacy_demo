@@ -20,3 +20,11 @@ class MentalHealthConversation(MentalHealthConversationBase):
 
     class Config:
         from_attributes = True
+
+
+class ConversationGenerateRequest(BaseModel):
+    question: str
+
+
+class ConversationGenerateResponse(BaseModel):
+    answer: str
