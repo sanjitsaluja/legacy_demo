@@ -34,13 +34,16 @@ The scope of this PRD includes backend design and implementation details only. F
 
 ## 3. Detailed Functional Requirements
 
+### 3.0 Poetry Setup
+Setup poetry in the project root. Use python 3.11.11. Install the dependencies. Install black and isort. Poetry package name is `app`.
+
 ### 3.1 Database Setup and CRUD APIs
 
 #### MySQL DB Setup & Migrations
 
 - Use Alembic for migrations and tracking schema changes
 - Database name: `legacy_development` (configure in `.env`)
-- Table: `mental_health_conversations`
+- There is only one table in the project. Table: `mental_health_conversations`
   - `id`: unique PK (integer)
   - `created_at`: datetime (auto-updates on insert)
   - `updated_at`: datetime (auto-updates on update)
