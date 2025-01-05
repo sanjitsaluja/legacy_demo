@@ -90,4 +90,4 @@ if __name__ == "__main__":
     data_dir.mkdir(exist_ok=True)
 
     # Initialize Milvus
-    init_milvus()
+    reset_milvus()

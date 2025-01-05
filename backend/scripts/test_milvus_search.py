@@ -42,15 +42,17 @@ def search_conversations(query: str, limit: int = 5):
             anns_field="embedding",
             param=search_params,
             limit=limit,
-            output_fields=["conversation_id"],
+            output_fields=["id", "question", "answer"],
         )
 
-        # Print results
+        # Print results with more details
         print(f"\nSearch results for query: '{query}'")
         print("-" * 50)
         for hits in results:
             for hit in hits:
-                print(f"Conversation ID: {hit.entity.get('conversation_id')}")
+                print(f"ID: {hit.entity.get('id')}")
+                print(f"Question: {hit.entity.get('question')}")
+                print(f"Answer: {hit.entity.get('answer')}")
                 print(f"Distance: {hit.distance}")
                 print("-" * 30)
 
