@@ -1,111 +1,116 @@
-Here's the corrected and properly formatted Markdown documentation:
+# Mental Health Dataset Exploration Platform - PRD
 
-# Project Overview
+## 1. Introduction
 
-We are building a mental health dataset exploration platform for mental health counselors. This application will allow mental health counselors to search, browse and operate on mental health conversation data. We will start by building the backend.
+We are building a mental health dataset exploration platform for mental health counselors. This application will allow mental health counselors to search, browse, and operate on mental health conversation data, with a focus on:
 
-For this you will use:
-- Poetry
-- Python
-- FastAPI
-- Celery with Redis (background workers)
-- MySQL
-- Redis
-- Milvus (Vector DB)
-- REST APIs
-- SQLAlchemy as ORM
-- DotEnv (for environment variables)
-- Pydantic for models
-- OpenAI for generation and embedding
+- Efficient data storage (MySQL)
+- Background processing (Celery + Redis)
+- Vector database search (Milvus)
+- LLM-based retrieval-augmented generation (OpenAI)
 
-# Core Functionalities
+The scope of this PRD includes backend design and implementation details only. Frontend or UI design is out of scope.
 
-## 1. Database Setup and CRUD APIs
+## 2. Project Overview
 
-### 1.1 MySQL DB Setup & Migrations
+### Purpose
 
-1. The database name will be `legacy_development`. Save the database name, user, connection information in the env file.
+- Provide mental health counselors with a tool to query conversation data, analyze sentiment, and receive generation-assisted suggestions for patient care
+- Ensure an extensible and scalable design so new features can be added easily
 
-2. We will use Alembic for migrations and keeping track of database changes. First need to generate the migration for the new database table. The table will be called `mental_health_conversations`:
+### Core Technologies
 
-   - `id`: unique pk (integer)
-   - `created_at`: datetime (automatically updates when new records are created)
-   - `updated_at`: datetime (automatically updates when records are updated)
-   - `question`: string
-   - `answer`: string 
-   - `question_sentiment`: enum (positive or negative or neutral)
-   - `answer_sentiment`: enum (positive or negative or neutral)
+- Python (primary language)
+- FastAPI (for REST APIs)
+- Celery + Redis (background jobs & queue)
+- MySQL (primary relational DB)
+- Milvus (vector DB for embeddings)
+- SQLAlchemy (ORM)
+- Alembic (DB migrations)
+- DotEnv (environment variables)
+- Pydantic (models & validation)
+- OpenAI (generation & embeddings)
+- Poetry (dependency management)
 
-3. Write the SQL Alchemy ORM for this model.
+## 3. Detailed Functional Requirements
 
-### 1.2 CRUD APIs 
+### 3.1 Database Setup and CRUD APIs
 
-Write simple CRUD APIs for this database model. The routes should be prefixed with `api/v1/conversations`. The APIs will use the FastAPI framework. Each CRUD API will use the ORM to do the CRUD.
+#### MySQL DB Setup & Migrations
 
-### 1.3 API Client
+- Use Alembic for migrations and tracking schema changes
+- Database name: `legacy_development` (configure in `.env`)
+- Table: `mental_health_conversations`
+  - `id`: unique PK (integer)
+  - `created_at`: datetime (auto-updates on insert)
+  - `updated_at`: datetime (auto-updates on update)
+  - `question`: string
+  - `answer`: string
+  - `question_sentiment`: enum (positive, negative, neutral)
+  - `answer_sentiment`: enum (positive, negative, neutral)
 
-Write a simple Python API Client for any service to access this API. This way it will be easy for other systems to integrate with the API. Write Pydantic models for parsing API responses so that clients can get models to operate on. These can be exported from the client.
+#### CRUD APIs
 
-## 2. Data Ingestion
+- Endpoint Prefix: `/api/v1/conversations`
+- Methods: Create, Read (list and detail), Update, Delete
+- Framework: FastAPI
+- Data Access: Use SQLAlchemy ORM for reading/writing
 
-### 2.1 Dataset Format
+#### API Client
 
-Our main dataset is a raw CSV file. We will read a CSV dataset from local file system and put that into the MySQL table we just created. The dataset will have 4 fields corresponding to the MySQL table:
+- Provide a Python API Client for external services or scripts to interact with the conversation data without directly calling the DB
+- Use Pydantic models for typed request and response models
 
-- `question`: string
-- `answer`: string 
-- `question_sentiment`: enum (positive or negative or neutral)
-- `answer_sentiment`: enum (positive or negative or neutral)
+### 3.2 Data Ingestion
 
-### 2.2 Data Import Script
+#### Dataset Format
 
-Write a script that reads the CSV and inserts records into the table we just created. Use the API client to create records (not the ORM).
+- Input: CSV with 4 fields (question, answer, question_sentiment, answer_sentiment)
+- Goal: Import CSV data into the `mental_health_conversations` table
 
-### 2.3 Vector Database Indexing via Celery
+#### Data Import Script
 
-#### 2.3.1 Milvus Setup
+- A standalone script (e.g., `data_import.py`) that:
+  - Reads CSV from local filesystem
+  - Uses the API Client (not ORM directly) to create records in MySQL
 
-Since we will use LLMs and RAG with this data, we need to create a collection in our Milvus vector database. The collection will be called `mental_health_embeddings_development`. In the Milvus vector db, we will save:
+#### Vector Database Indexing via Celery
 
-- `id` (id of the conversation from MySQL)
-- `embedding`
-- `question`: string
-- `question_sentiment`: string
+- Milvus Setup: Collection name `mental_health_embeddings_development`
+  - Stores:
+    - id (MySQL record PK)
+    - embedding
+    - question
+    - question_sentiment
+- Celery Workers:
+  - `CreatedMentalHealthConversationJob`: Insert into Milvus after a new record is created in MySQL
+  - `UpdatedMentalHealthConversationJob`: Update corresponding record in Milvus
+  - `DeletedMentalHealthConversationJob`: Remove corresponding record from Milvus
+- REST API Integration: After each CRUD operation commits to the MySQL DB, enqueue the corresponding Celery job to sync with Milvus
 
-#### 2.3.2 Celery Workers
+### 3.3 RAG Search and Generation
 
-We will create 3 Celery workers that will operate on the vector database. The Celery workers should take the primary key ID of the record created:
+#### OpenAI & RAG Generation Service
 
-- `CreatedMentalHealthConversationJob`: Inserts data into the Milvus collection using the ID as PK
-- `UpdatedMentalHealthConversationJob`: Updates data in the Milvus collection using the ID
-- `DeletedMentalHealthConversationJob`: Deletes the data in the Milvus collection using the ID
+Users can enter free-text queries describing a challenge with a patient.
+The system:
+- Searches Milvus for top 3 hits by similarity
+- Retrieves question and answer fields for those top 3 hits
+- Renders a Jinja prompt (startup prompt in `startup_prompt.jinja`)
+- Calls OpenAI with the compiled prompt
+- Returns the LLM-generated result
 
-#### 2.3.3 API Integration
+#### RAG Search API Endpoint
 
-Update the REST APIs to queue the respective Celery workers after the record is committed to the database.
+- Endpoint: (e.g.) POST `/api/v1/rag_search`
+- Request: JSON body with user's question text
+- Response: The generated text from OpenAI, incorporating the retrieved Q/A context from Milvus
 
-## 3. RAG Search and Generation
+## 4. Reference Documentation & Example Code
 
-### 3.1 OpenAI and RAG Generation Service
+### 4.1 Milvus + OpenAI Example
 
-Users can enter free-text that describes the challenge they are facing with a particular patient, invoke the LLM using the user's input, and return a suggestion on how to best help the patient.
-
-#### 3.1.1 Service Implementation
-
-Build a service that takes a string question:
-1. Searches the vector database for the top 3 hits based on the input question
-2. Retrieves both the question and the answer for the top 3 hits
-3. Creates a startup prompt in a Jinja file
-4. Uses the questions and answers from the vector database to fill out a prompt
-5. Sends the prompt to OpenAI and returns the generated response to the user
-
-### 3.2 API Endpoint
-
-Build an API which takes an incoming user question as JSON body text. It then uses the service above and returns the answer to the user.
-
-# Documentation
-
-## Milvus Usage Example
+Below is an example demonstrating how you might integrate Milvus and OpenAI. This snippet is illustrative—not production-ready. It shows how to create a Milvus collection, generate embeddings via OpenAI, and perform a search.
 
 ```python
 import os
@@ -192,10 +197,151 @@ if __name__ == "__main__":
     main()
 ```
 
-# Existing project structure
+Key Takeaways:
+- Creating a Milvus collection (with a vector field)
+- Generating OpenAI embeddings
+- Inserting records, searching, and deleting records
 
-.
+## 5. Recommended Project Structure
+
+Below is an example structure to keep the project modular and maintainable. Folders and files can be adapted as needed:
+
+```
+project-root/
+├── README.md
+├── pyproject.toml
+├── poetry.lock
+├── .env              # Environment variables for DB, Redis, OpenAI, etc.
+├── .env.local        # Local overrides, typically .gitignore'd
 ├── docker-compose.yml
-├── my_milvus.db
-└── train.csv
-└── .env.local
+├── my_milvus.db      # Milvus local file (if using local Milvus deployment)
+├── train.csv         # The CSV dataset
+│
+├── app/
+│   ├── __init__.py
+│   ├── main.py       # FastAPI entrypoint (Uvicorn runs this)
+│   │
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── v1/
+│   │       ├── __init__.py
+│   │       ├── controllers.py   # CRUD endpoints
+│   │       ├── routes.py        # Router (include_router) for /api/v1
+│   │       └── schemas.py       # Pydantic request/response models
+│   │
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── session.py           # SQLAlchemy session creation
+│   │   ├── base.py              # Base metadata for SQLAlchemy
+│   │   └── migrations/          # Alembic migrations
+│   │       ├── env.py
+│   │       ├── script.py.mako
+│   │       └── versions/        # Auto-generated migration files
+│   │
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── mental_health_conversation.py  # SQLAlchemy model
+│   │
+│   ├── workers/                 # Celery workers & tasks
+│   │   ├── __init__.py
+│   │   ├── celery_app.py
+│   │   └── tasks.py
+│   │
+│   ├── services/                # Business logic / specialized services
+│   │   ├── __init__.py
+│   │   └── rag_generation.py    # RAG logic with Milvus + OpenAI
+│   │
+│   ├── clients/
+│   │   ├── __init__.py
+│   │   └── mental_health_conversations_client.py
+│   │       # Python API client + Pydantic models
+│   │
+│   ├── templates/
+│   │   └── startup_prompt.jinja # Jinja template for prompt construction
+│   │
+│   └── config.py                # Centralized config logic if needed
+│
+├── scripts/
+│   └── data_import.py           # CSV ingestion script
+│
+└── tests/
+    ├── __init__.py
+    └── test_api.py
+```
+
+### Notes on Key Folders
+
+- `app/api/v1`: Contains FastAPI controllers, routes, and Pydantic schemas for versioned API endpoints
+- `app/db/migrations`: Alembic migration files and configuration
+- `app/workers`: Contains Celery app initialization and the tasks that interact with Milvus
+- `app/services`: Contains "business logic," such as RAG generation steps
+- `app/clients`: A Python client for your own service or any external service. Use Pydantic for typed results
+- `scripts/`: One-off or utility scripts (e.g., data import)
+- `tests/`: Automated tests (e.g., Pytest)
+
+## 6. Development & Deployment Flow
+
+### Setup
+
+Install dependencies:
+```bash
+poetry install
+```
+
+Configure environment variables in `.env`.
+
+### Database Migrations
+
+Use Alembic to manage schema changes:
+```bash
+alembic revision --autogenerate -m "Create mental_health_conversations table"
+alembic upgrade head
+```
+
+### Running the Project
+
+Start the required services (MySQL, Redis, Milvus) via Docker Compose:
+```bash
+docker-compose up -d
+```
+
+Start FastAPI (e.g., with Uvicorn):
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Run Celery workers:
+```bash
+celery -A app.workers.celery_app worker --loglevel=info
+```
+
+### Data Ingestion
+
+Run the CSV import script (using the internal API client):
+```bash
+python scripts/data_import.py
+```
+
+### RAG Endpoints
+
+Test RAG flows at `/api/v1/rag_search` (POST), or wherever it is registered.
+
+### Testing
+
+Implement unit tests in `tests/` and run them:
+```bash
+pytest
+```
+
+## 7. Success Criteria & Acceptance
+
+- Data Access: Counselors can query mental health conversations, filter by sentiment, and retrieve relevant answers
+- Background Sync: Any CRUD operation automatically syncs to Milvus via Celery tasks
+- RAG: Users can provide a free-text question, retrieve top 3 relevant results from Milvus, and receive a generated answer from OpenAI
+- Scalability: Project structure supports future expansions (new models, new microservices, further Celery tasks, etc.)
+
+### Important Notes
+
+- The example Milvus code above is only to illustrate the typical usage pattern; actual integration logic will reside in `rag_generation.py` or Celery tasks
+- The file structure is a recommendation that follows typical Python best practices and might be tweaked to fit your team's conventions
+- Always ensure API keys, database credentials, and other sensitive information are stored in environment variables and excluded from version control
