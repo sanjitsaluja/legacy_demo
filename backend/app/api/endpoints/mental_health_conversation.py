@@ -9,6 +9,7 @@ from app.schemas.mental_health_conversation import (
     MentalHealthConversation,
     MentalHealthConversationCreate,
 )
+from app.worker.tasks import index_conversation
 
 router = APIRouter()
 
@@ -17,9 +18,15 @@ router = APIRouter()
 def create_conversation(
     conversation: MentalHealthConversationCreate, db: Session = Depends(get_db)
 ):
-    return mental_health_conversation.create_conversation(
+    # Create the conversation in the database
+    db_conversation = mental_health_conversation.create_conversation(
         db=db, conversation=conversation
     )
+
+    # Enqueue the indexing task
+    index_conversation.delay(db_conversation.id)
+
+    return db_conversation
 
 
 @router.get("/conversations/", response_model=List[MentalHealthConversation])
