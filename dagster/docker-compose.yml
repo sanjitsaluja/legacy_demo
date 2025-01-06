@@ -1,0 +1,174 @@
+services:
+  dremio:
+    platform: linux/x86_64
+    image: dremio/dremio-oss:latest
+    ports:
+      - 9047:9047
+      - 31010:31010
+      - 32010:32010
+    container_name: dremio
+    networks:
+      - iceberg_env
+    volumes:
+      - dremio_data:/var/lib/dremio
+
+  minioserver:
+    image: minio/minio
+    ports:
+      - 9000:9000
+      - 9001:9001
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    container_name: minio
+    command: server /data --console-address ":9001"
+    networks:
+      - iceberg_env
+    volumes:
+      - minio_data:/data
+
+  spark_notebook:
+    image: alexmerced/spark33-notebook
+    ports: 
+      - 8888:8888
+    env_file: .env
+    container_name: notebook
+    networks:
+      - iceberg_env
+
+  nessie:
+    image: projectnessie/nessie
+    container_name: nessie
+    ports:
+      - "19120:19120"
+    networks:
+      - iceberg_env
+    volumes:
+      - nessie_data:/var/lib/nessie
+
+  # This service runs the postgres DB used by dagster for run storage, schedule storage,
+  # and event log storage. Depending on the hardware you run this Compose on, you may be able
+  # to reduce the interval and timeout in the healthcheck to speed up your `docker-compose up` times.
+  postgresql:
+    image: postgres:11
+    container_name: postgresql
+    environment:
+      POSTGRES_USER: "postgres_user"
+      POSTGRES_PASSWORD: "postgres_password"
+      POSTGRES_DB: "postgres_db"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres_user -d postgres_db"]
+      interval: 10s
+      timeout: 8s
+      retries: 5
+    networks:
+      - iceberg_env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # This service runs the gRPC server that loads your user code, in both dagster-webserver
+  # and dagster-daemon. By setting DAGSTER_CURRENT_IMAGE to its own image, we tell the
+  # run launcher to use this same image when launching runs in a new container as well.
+  # Multiple containers like this can be deployed separately - each just needs to run on
+  # its own port, and have its own entry in the workspace.yaml file that's loaded by the
+      # webserver.
+  dagster_user_code:
+    build:
+      context: ./dagster
+      dockerfile: Dockerfile_user_code
+    container_name: dagster_user_code
+    image: dagster_user_code_image
+    restart: always
+    environment:
+      DAGSTER_POSTGRES_USER: "postgres_user"
+      DAGSTER_POSTGRES_PASSWORD: "postgres_password"
+      DAGSTER_POSTGRES_DB: "postgres_db"
+      DAGSTER_CURRENT_IMAGE: "dagster_user_code_image"
+      AWS_REGION: us-east-1
+      MINIO_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: Ub9RItI7c8LjwyYbrjt6
+      AWS_SECRET_ACCESS_KEY: X9F6fHIUeayfAExWCmgPAfkoiieaRMtMZyk5ni9W
+      AWS_S3_ENDPOINT: http://minioserver:9000
+      WAREHOUSE: s3a://warehouse/
+      NESSIE_URI: http://nessie:19120/api/v1
+
+    networks:
+      - iceberg_env
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    links:
+      - postgresql:postgresql
+
+  # This service runs dagster-webserver, which loads your user code from the user code container.
+  # Since our instance uses the QueuedRunCoordinator, any runs submitted from the webserver will be put on
+  # a queue and later dequeued and launched by dagster-daemon.
+  dagster_webserver:
+    build:
+      context: ./dagster
+      dockerfile: Dockerfile_dagster
+    entrypoint:
+      - dagster-webserver
+      - -h
+      - "0.0.0.0"
+      - -p
+      - "3000"
+      - -w
+      - workspace.yaml
+    container_name: dagster_webserver
+    expose:
+      - "3000"
+    ports:
+      - "3000:3000"
+    environment:
+      DAGSTER_POSTGRES_USER: "postgres_user"
+      DAGSTER_POSTGRES_PASSWORD: "postgres_password"
+      DAGSTER_POSTGRES_DB: "postgres_db"
+    volumes: # Make docker client accessible so we can terminate containers from the webserver
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/io_manager_storage:/tmp/io_manager_storage
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      dagster_user_code:
+        condition: service_started
+    networks:
+      - iceberg_env
+
+  # This service runs the dagster-daemon process, which is responsible for taking runs
+  # off of the queue and launching them, as well as creating runs from schedules or sensors.
+  dagster_daemon:
+    build:
+      context: ./dagster
+      dockerfile: Dockerfile_dagster
+    entrypoint:
+      - dagster-daemon
+      - run
+    container_name: dagster_daemon
+    restart: always
+    environment:
+      DAGSTER_POSTGRES_USER: "postgres_user"
+      DAGSTER_POSTGRES_PASSWORD: "postgres_password"
+      DAGSTER_POSTGRES_DB: "postgres_db"
+    volumes: # Make docker client accessible so we can launch containers using host docker
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/io_manager_storage:/tmp/io_manager_storage
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      dagster_user_code:
+        condition: service_started
+    networks:
+      - iceberg_env
+networks:
+  iceberg_env:
+    name: iceberg_env
+    driver: bridge 
+
+volumes:
+  postgres_data:
+  minio_data:
+  nessie_data:
+  dremio_data:
+  

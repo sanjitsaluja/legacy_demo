@@ -1,0 +1,97 @@
+FROM python:3.10-slim
+
+# Checkout and install dagster libraries needed to run the gRPC server
+# exposing your repository to dagster-webserver and dagster-daemon, and to load the DagsterInstance
+
+RUN pip install \
+    dagster \
+    dagster-postgres \
+    dagster-docker \
+    pandas \
+    pyspark==3.3.1 \
+    kaggle \
+    textblob \
+    torch \
+    transformers
+
+# ------------------------------------------------------------------------
+# 3) Update apt and install base packages
+#    (We combine several steps to reduce layers)
+# ------------------------------------------------------------------------
+    RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        sudo \
+        wget \
+        curl \
+        ca-certificates \
+        python3 \
+        python3-pip \
+        git \
+        tar \
+        gzip \
+        gnupg \
+        procps \
+        vim \
+    && rm -rf /var/lib/apt/lists/*
+
+    RUN wget -q \
+    https://download.java.net/java/GA/jdk17/0d483333a00540d886896bac774ff48b/35/GPL/openjdk-17_linux-x64_bin.tar.gz \
+    -O /tmp/openjdk-17_linux-x64_bin.tar.gz \
+ && tar -xvf /tmp/openjdk-17_linux-x64_bin.tar.gz -C /tmp \
+ && mv /tmp/jdk-17 /opt/jdk-17 \
+ && rm /tmp/openjdk-17_linux-x64_bin.tar.gz
+
+# ------------------------------------------------------------------------
+# 6) Add JAVA_HOME, update PATH, and alias java17
+#    (We append to /etc/bash.bashrc so that all users see it)
+# ------------------------------------------------------------------------
+RUN echo "export JAVA_HOME=/opt/jdk-17"          >> /etc/bash.bashrc && \
+    echo "export PATH=\$PATH:\$JAVA_HOME/bin"    >> /etc/bash.bashrc && \
+    echo "alias java17='/opt/jdk-17/bin/java'"   >> /etc/bash.bashrc
+
+# ------------------------------------------------------------------------
+# 7) Install Coursier (cs), SBT, Scala
+# ------------------------------------------------------------------------
+RUN curl -fL \
+    https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz \
+    -o /tmp/cs.gz \
+ && gunzip /tmp/cs.gz \
+ && chmod +x /tmp/cs \
+ && sudo mv /tmp/cs /usr/local/bin/cs \
+ && cs setup -y \
+ && cs install sbt \
+ && cs install scala
+
+# Add coursier bin to PATH for all future shells
+RUN echo 'export PATH=$PATH:/root/.local/share/coursier/bin' >> ~/.bashrc
+
+# ------------------------------------------------------------------------
+# 8) Install Spark
+# ------------------------------------------------------------------------
+USER root
+RUN wget -q \
+    https://archive.apache.org/dist/spark/spark-3.3.1/spark-3.3.1-bin-hadoop3.tgz \
+    -O /tmp/spark-3.3.1-bin-hadoop3.tgz \
+ && mkdir -p /opt/spark \
+ && tar -xf /tmp/spark-3.3.1-bin-hadoop3.tgz -C /opt/spark --strip-components=1 \
+ && rm /tmp/spark-3.3.1-bin-hadoop3.tgz \
+ && chmod -R 755 /opt/spark
+
+# Append Spark and Python environment variables in /etc/bash.bashrc
+RUN echo "export SPARK_HOME=/opt/spark"                               >> /etc/bash.bashrc && \
+    echo "export PATH=\$PATH:\$SPARK_HOME/bin:\$SPARK_HOME/sbin"      >> /etc/bash.bashrc && \
+    echo "export PYSPARK_PYTHON=/usr/local/bin/python"                     >> /etc/bash.bashrc
+
+RUN mkdir -p /root/.config/kaggle
+COPY kaggle.json /root/.config/kaggle/kaggle.json
+# Add repository code
+
+WORKDIR /opt/dagster/app
+
+COPY *.py /opt/dagster/app
+
+# Run dagster gRPC server on port 4000
+
+EXPOSE 4000
+
+CMD ["dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-f", "definitions.py"]
