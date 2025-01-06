@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
+from typing import Any, Dict, List
 
 from dotenv import load_dotenv
-from pymilvus import DataType, MilvusClient
+from pymilvus import Collection, DataType, MilvusClient, connections
 
 # Load environment variables
 load_dotenv(".env.local")
@@ -11,7 +12,7 @@ load_dotenv(".env.local")
 ROOT_DIR = Path(__file__).parent.parent.parent
 
 # Milvus configuration
-COLLECTION_NAME = "mental_health_conversations"
+COLLECTION_NAME = os.getenv("MILVUS_COLLECTION_NAME", "mental_health_conversations")
 EMBEDDING_DIM = 1536  # OpenAI ada-002 dimension
 
 # Initialize Milvus client
@@ -82,6 +83,21 @@ def reset_milvus():
         print(f"Dropping collection {COLLECTION_NAME}...")
         milvus_client.drop_collection(COLLECTION_NAME)
     init_milvus()
+
+
+def get_similar_conversations(
+    query_embedding: List[float], limit: int = 3
+) -> List[Dict[str, Any]]:
+    """Search for similar conversations in Milvus"""
+    search_results = milvus_client.search(
+        collection_name=COLLECTION_NAME,
+        data=[query_embedding],
+        limit=limit,
+        output_fields=["question", "answer"],
+    )
+
+    # Return the conversations in a simplified format
+    return [hit["entity"] for hit in search_results[0]]
 
 
 if __name__ == "__main__":

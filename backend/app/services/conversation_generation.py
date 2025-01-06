@@ -5,10 +5,14 @@ from jinja2 import Environment, FileSystemLoader
 from openai import OpenAI
 from pydantic import BaseModel
 
-from app.db.milvus_client import milvus_client
+from app.db.milvus_client import get_similar_conversations, milvus_client
 
 # Initialize OpenAI client
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    base_url="https://oai.helicone.ai/v1",
+    default_headers={"Helicone-Auth": f"Bearer {os.getenv('HELICONE_API_KEY')}"},
+)
 
 # Setup Jinja2 environment
 template_env = Environment(loader=FileSystemLoader("app/templates"))
@@ -33,24 +37,12 @@ class ConversationRAGGenerationService:
         )
         query_embedding = response.data[0].embedding
 
-        # Search in Milvus
-        search_results = milvus_client.search(
-            collection_name="mental_health_conversations",
-            data=[query_embedding],
-            limit=limit,
-            output_fields=["question", "answer"],
-        )
-
-        # Convert results to ConversationContext objects
-        conversations = []
-        for hit in search_results[0]:
-            conversations.append(
-                ConversationContext(
-                    question=hit["entity"]["question"], answer=hit["entity"]["answer"]
-                )
-            )
-
-        return conversations
+        # Use abstracted Milvus client function
+        conversations = get_similar_conversations(query_embedding, limit)
+        return [
+            ConversationContext(question=conv["question"], answer=conv["answer"])
+            for conv in conversations
+        ]
 
     def generate_response(self, user_query: str) -> str:
         """Generate a response using RAG"""
