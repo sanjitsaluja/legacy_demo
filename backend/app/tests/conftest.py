@@ -23,6 +23,7 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 @pytest.fixture(scope="function")
 def db() -> Generator[Session, None, None]:
+    """Get a test database session."""
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
     try:
@@ -34,6 +35,8 @@ def db() -> Generator[Session, None, None]:
 
 @pytest.fixture(scope="function")
 def client(db: Session) -> Generator[TestClient, None, None]:
+    """Get a test FastAPI client."""
+
     def override_get_db():
         try:
             yield db
@@ -48,6 +51,30 @@ def client(db: Session) -> Generator[TestClient, None, None]:
 
 @pytest.fixture(scope="session")
 def event_loop():
+    """Create an event loop for async tests."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
+
+
+@pytest.fixture(scope="function")
+async def async_client(client: TestClient) -> AsyncGenerator[TestClient, None]:
+    """Get an async test client."""
+    yield client
+
+
+@pytest.fixture(autouse=True)
+def mock_milvus(monkeypatch):
+    """Mock Milvus client for tests."""
+
+    class MockMilvusClient:
+        def insert(self, *args, **kwargs):
+            return {"insert_count": 1}
+
+        def delete(self, *args, **kwargs):
+            return True
+
+        def search(self, *args, **kwargs):
+            return [{"id": 1, "distance": 0.5}]
+
+    monkeypatch.setattr("app.db.milvus_client.milvus_client", MockMilvusClient())
